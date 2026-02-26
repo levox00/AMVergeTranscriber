@@ -1,2 +1,8 @@
-Need to add a dynamic threshold, essentially the stuff that gets outputted to frame.txt, get the average of all of the upper
-numbers, and set that as the threshold. Implement that using Claude.
+Add more frontend stuff:
+- Make export button work, create backend for it as well
+- Make the button animations for import and export
+- Implement hamburger menu as well as the file explorer
+- Create settings which includes the directly for clip navigation, color changers, background changers, and more
+
+- Bundle everything together into one .exe using npm run tauri build, and use PyInstaller to bundle venv and all
+python dependencies, then import that same python into main.rs

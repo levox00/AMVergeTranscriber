@@ -11,7 +11,7 @@ type LayoutProps = {
     setSelectedClips: React.Dispatch<
         React.SetStateAction<Set<string>>
     >;
-    clips: { id: string; src: string }[];
+    clips: { id: string; src: string; thumbnail: string }[];
     importToken: string;
     loading: boolean;
 };

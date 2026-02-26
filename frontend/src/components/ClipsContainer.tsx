@@ -13,7 +13,7 @@ type ClipContainerProps = {
   gridPreview: boolean;
   setSelectedClips: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedClips: Set<string>;
-  clips: { id: string; src: string }[];
+  clips: { id: string; src: string; thumbnail: string }[];
   importToken: string;
   loading: boolean;
 };
@@ -23,43 +23,28 @@ type ClipContainerProps = {
 // --------------------
 
 type LazyClipProps = {
-  clip: { id: string; src: string };
+  clip: { id: string; src: string, thumbnail: string };
   importToken: string;
   isSelected: boolean;
   gridPreview: boolean;
-  onClick: (e: React.MouseEvent<HTMLVideoElement>) => void;
+  onClick: (e: React.MouseEvent<HTMLDivElement>) => void;
   videoRef: (el: HTMLVideoElement | null) => void;
 };
 
 function LazyClip({ clip, importToken, isSelected, gridPreview, onClick, videoRef }: LazyClipProps) {
   // tracks whether this clip has entered the viewport at least once
   const [isVisible, setIsVisible] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          // Play immediately if gridPreview is already on — can't wait for
-          // the React state update + effect cycle because the video ref may
-          // not be wired up yet at that point, so we use a short rAF to let
-          // the render happen first.
-          if (gridPreview) {
-            requestAnimationFrame(() => {
-              internalVideoRef.current?.play().catch(() => {});
-            });
-          }
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "200px", threshold: 0 }
+      ([entry]) => setIsVisible(entry.isIntersecting),
+      { rootMargin: "400px", threshold: 0 }
     );
-
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -69,45 +54,50 @@ function LazyClip({ clip, importToken, isSelected, gridPreview, onClick, videoRe
   // true when the user scrolls a clip into view).
   useEffect(() => {
     const v = internalVideoRef.current;
-    if (!v || !isVisible) return;
-
-    if (gridPreview) {
+    if (!v) return;
+    if (gridPreview || isHovered) {
       v.play().catch(() => {});
     } else {
       v.pause();
       v.currentTime = 0;
     }
-  }, [gridPreview, isVisible]);
+  }, [gridPreview, isHovered]);
+
+  const showVideo = isHovered || gridPreview;
 
   return (
     <div
       ref={wrapperRef}
       className={`clip-wrapper ${isSelected ? "selected" : ""}`}
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {isVisible ? (
-        <video
-          className="clip"
-          src={`${convertFileSrc(clip.src)}?v=${importToken}`}
-          muted
-          loop
-          preload="metadata"
-          ref={(el) => {
-            internalVideoRef.current = el;
-            videoRef(el);
-          }}
-          onMouseEnter={() => {
-            if (!gridPreview) internalVideoRef.current?.play();
-          }}
-          onMouseLeave={() => {
-            if (!gridPreview) {
-              const v = internalVideoRef.current;
-              if (v) { v.pause(); v.currentTime = 0; }
-            }
-          }}
-          onClick={onClick}
-        />
+        <>
+          {/* Thumbnail — always rendered when visible, hidden on hover */}
+          <img
+            className="clip"
+            src={`${convertFileSrc(clip.thumbnail)}?v=${importToken}`}
+            style={{ display: showVideo ? "none" : "block" }}
+          />
+          {/* Video — only mounted when hovered or gridPreview, otherwise skip the DOM node entirely */}
+          {showVideo && (
+            <video
+              className="clip"
+              src={`${convertFileSrc(clip.src)}?v=${importToken}`}
+              muted
+              loop
+              autoPlay
+              preload="none"
+              ref={(el) => {
+                internalVideoRef.current = el;
+                videoRef(el);
+              }}
+            />
+          )}
+        </>
       ) : (
-        // Placeholder that holds the layout space while the clip is off-screen
         <div className="clip clip-skeleton" style={{ borderRadius: 15 }} />
       )}
     </div>

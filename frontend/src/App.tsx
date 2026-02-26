@@ -15,7 +15,7 @@ function App() {
   */
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
   const [importToken, setImportToken] = useState(() => Date.now().toString());
-  const [clips, setClips] = useState<{ id: string; src: string }[]>([]);
+  const [clips, setClips] = useState<{ id: string; src: string; thumbnail: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [gridPreview, setGridPreview] = useState<true | false>(false);
   const [cols, setCols] = useState(6);
@@ -25,12 +25,6 @@ function App() {
   const width = gridRef.current?.offsetWidth || 0;
   const gridSize = Math.floor(width / cols);
   
-  // divides width of grid by input grid size
-  const currentCols = Math.max(
-    1, // has to be minimum 1 column so we max it with 1 here
-    Math.floor(width / (gridSize))
-  );
-
   const snapGridBigger = () => {
     setCols(c => Math.max(1, c - 1));
   };
@@ -49,7 +43,8 @@ function App() {
     // turns to an array of objects
     return scenes.map((s: any) => ({
       id: crypto.randomUUID(),
-      src: s.path
+      src: s.path,
+      thumbnail: s.thumbnail
     }));
   };
 
