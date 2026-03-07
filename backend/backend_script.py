@@ -9,10 +9,10 @@ import json
 from utils import generate_keyframes, emit_progress
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def generate_thumbnails(output_dir: str, scene_count: int):
+def generate_thumbnails(output_dir: str, scene_count: int, file_name):
     def make_thumb(i):
-        clip_path = os.path.join(output_dir, f"scene_{i:04d}.mp4")
-        thumb_path = os.path.join(output_dir, f"scene_{i:04d}.jpg")
+        clip_path = os.path.join(output_dir, f"{file_name}_{i:04d}.mp4")
+        thumb_path = os.path.join(output_dir, f"{file_name}_{i:04d}.jpg")
         if not os.path.exists(clip_path) or os.path.getsize(clip_path) == 0:
             return None
         cmd = [
@@ -34,6 +34,8 @@ def generate_thumbnails(output_dir: str, scene_count: int):
 def trim_scenes_at_keyframes(video_path: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
     
+    file_name = os.path.splitext(os.path.basename(video_path))[0]
+
     emit_progress(10, "Extracting keyframes...")
     keyframes = generate_keyframes(video_path=video_path)
     print(f"Keyframes found: {len(keyframes)}", file=sys.stderr)
@@ -47,7 +49,7 @@ def trim_scenes_at_keyframes(video_path: str, output_dir: str):
     cut_points = sorted(keyframes[1:])
     emit_progress(50, f"Cutting {len(cut_points)} scenes...")
 
-    out_pattern = os.path.join(output_dir, "scene_%04d.mp4")
+    out_pattern = os.path.join(output_dir, f"{file_name}_%04d.mp4")
 
     cmd = [
         "ffmpeg", "-y",
@@ -65,7 +67,7 @@ def trim_scenes_at_keyframes(video_path: str, output_dir: str):
 
     emit_progress(75, "Generating thumbnails..")
     scene_count = len(cut_points) + 1
-    generate_thumbnails(output_dir, scene_count)
+    generate_thumbnails(output_dir, scene_count, file_name)
 
     # Collect results
     emit_progress(95, "Assembling results...")
@@ -73,30 +75,30 @@ def trim_scenes_at_keyframes(video_path: str, output_dir: str):
     boundaries = [0.0] + cut_points
     for i, start in enumerate(boundaries):
         end = boundaries[i + 1] if i + 1 < len(boundaries) else None
-        out_path = os.path.join(output_dir, f"scene_{i:04d}.mp4")
-        thumb_path = os.path.join(output_dir, f"scene_{i:04d}.jpg")
+        out_path = os.path.join(output_dir, f"{file_name}_{i:04d}.mp4")
+        thumb_path = os.path.join(output_dir, f"{file_name}_{i:04d}.jpg")
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             final_scenes.append({
                 "scene_index": i,
                 "start": start,
                 "end": end,
                 "path": out_path,
-                "thumbnail": thumb_path   # <-- new field
+                "thumbnail": thumb_path,
+                "original_file": file_name
             })
     emit_progress(100, "Done")
+
     return final_scenes
 
 if __name__ == "__main__":
     input_file = sys.argv[1]
     output_dir = sys.argv[2]
-    # blocksize = int(sys.argv[3])
     # output_dir = sys.argv[4]
     # scenes = detect_and_trim_scenes(
     #     original_video_path=input_file,
     #     threshold=threshold,
     #     blocksize=blocksize,
     #     output_dir=output_dir
-    # )
 
     scenes = trim_scenes_at_keyframes(input_file, output_dir)
     print("About to print JSON", file=sys.stderr)

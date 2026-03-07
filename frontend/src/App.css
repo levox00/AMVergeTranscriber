@@ -36,7 +36,9 @@ main {
     min-height: 0;
 }
 
-
+.window-wrapper {
+    display: flex;
+}
 /* all buttons*/
 .buttons {
     height: 30px;
@@ -147,9 +149,6 @@ main {
 /* --------------------
         NAVBAR
 -------------------- */
-.navbar {
-    padding-left: 12px;
-}
 .navbar > img {
     width: 150px;
     height: auto;
@@ -160,8 +159,14 @@ main {
     width: 45px;
     height: auto;
     color: white;
+    background: none;
+    transition: filter 0.2s ease;
 }
 
+.navbar > svg:hover {
+    cursor: pointer;
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.7));
+}
 /* --------------------
       TOP BUTTONS
 -------------------- */
@@ -171,6 +176,7 @@ main {
     width: 100%;
     /* background: green; */
     height: 2.5rem;
+    padding-top: 6px;
 }
 
 .import-buttons-container {
@@ -298,6 +304,46 @@ main {
     border-radius: 8px;
 }
 
+/* --------------------
+        SIDEBAR
+-------------------- */
+.sidebar-container {
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    min-width: 20vh;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);;
+    margin-right: 10px;
+}
+
+.sidebar-container > .menu-buttons {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 5vh;
+}
+.sidebar-container > .eps-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+}
+
+.sidebar-container > .sidebar-button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 30px;
+}
+.sidebar-button > button {
+    width: 100%;
+    height: 100%;
+    font-size: 20px;
+    background:  rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+}
 /* --------------------
       LAYOUT SPLIT
 -------------------- */

@@ -4,10 +4,11 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect } from "react";
-import Navbar from "./components/Navbar";
-import ImportButtons from "./components/ImportButtons";
-import "./App.css";
+import Navbar from "./components/Navbar.tsx";
+import ImportButtons from "./components/ImportButtons.tsx";
 import MainLayout from "./MainLayout";
+import Sidebar from "./components/Sidebar.tsx"
+import "./App.css";
 
 function App() {
   /*
@@ -24,6 +25,7 @@ function App() {
   const [progressMsg, setProgressMsg] = useState("Starting..."); 
   const [isEmpty, setIsEmpty] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
+  const [sideBarEnabled, setSideBarEnabled] = useState(true);
   const gridRef = useRef<HTMLDivElement>(null);
   const width = gridRef.current?.offsetWidth || 0;
   const gridSize = Math.floor(width / cols);
@@ -47,7 +49,8 @@ function App() {
     return scenes.map((s: any) => ({
       id: crypto.randomUUID(),
       src: s.path,
-      thumbnail: s.thumbnail
+      thumbnail: s.thumbnail,
+      originalName: s.original_file
     }));
   };
 
@@ -63,6 +66,7 @@ function App() {
     });
     handleImport(file)
   }
+
   const handleImport = async (file: string | null) => {
     // This opens the file dialog to select a video file
     if (!file) return;
@@ -205,32 +209,41 @@ function App() {
         </div>
 
       )}
-      <Navbar />
-      <ImportButtons 
-        cols={cols}
-        gridSize={gridSize}
-        onBigger={snapGridBigger}
-        onSmaller={snapGridSmaller}
-        setGridPreview={setGridPreview}
-        gridPreview={gridPreview}
-        selectedClips={selectedClips}
-        setSelectedClips={setSelectedClips}
-        onImport={onImportClick}
-        loading={loading}
-      />
-      <div className="main" >
-        <MainLayout 
-         cols={cols}
-         gridSize={gridSize}
-         gridRef={gridRef}
-         gridPreview={gridPreview}
-         selectedClips={selectedClips}
-         setSelectedClips={setSelectedClips}
-         clips={clips}
-         importToken={importToken}
-         loading={loading}
-         isEmpty={isEmpty}
-         handleExport={handleExport}/>
+      <div className="window-wrapper">
+        {sideBarEnabled && <Sidebar setSideBarEnabled={setSideBarEnabled}/>}
+        <div className="content-wrapper">
+          <Navbar 
+           setSideBarEnabled={setSideBarEnabled}/>
+          <div className="main-content">
+            <ImportButtons 
+              cols={cols}
+              gridSize={gridSize}
+              onBigger={snapGridBigger}
+              onSmaller={snapGridSmaller}
+              setGridPreview={setGridPreview}
+              gridPreview={gridPreview}
+              selectedClips={selectedClips}
+              setSelectedClips={setSelectedClips}
+              onImport={onImportClick}
+              loading={loading}
+            />
+            <div className="main" >
+              <MainLayout 
+              cols={cols}
+              gridSize={gridSize}
+              gridRef={gridRef}
+              gridPreview={gridPreview}
+              selectedClips={selectedClips}
+              setSelectedClips={setSelectedClips}
+              clips={clips}
+              importToken={importToken}
+              loading={loading}
+              isEmpty={isEmpty}
+              handleExport={handleExport}
+              sideBarEnabled={sideBarEnabled}/>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   );

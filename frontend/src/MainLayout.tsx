@@ -19,6 +19,7 @@ type LayoutProps = {
         selectedClips: Set<string>,
         mergeEnabled: boolean
     ) => Promise<void>;
+    sideBarEnabled: boolean;
 };
 export default function MainLayout(props: LayoutProps) {
     const [leftWidth, setLeftWidth] = useState(65);
