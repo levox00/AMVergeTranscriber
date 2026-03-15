@@ -174,13 +174,17 @@ body {
 /* --------------------
         NAVBAR
 -------------------- */
-.navbar > img {
+.navbar {
+    display: flex;
+    justify-content: space-between;
+}
+.navbar img {
     width: 150px;
     height: auto;
     margin: 10px 0px 3px 5px;
 }
 
-.navbar > svg { 
+.navbar svg { 
     width: 45px;
     height: auto;
     color: white;
@@ -188,9 +192,50 @@ body {
     transition: filter 0.2s ease;
 }
 
-.navbar > svg:hover {
+.navbar svg:hover {
     cursor: pointer;
     filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.7));
+}
+
+.navbar > .hevc-check {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start; /* not 'top' */
+  align-items: flex-end;       /* not 'end' */
+  margin-right: 8px;
+  margin-top: 8px;
+  gap: 4px;
+}
+
+.hevc-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 10px;
+  background: #666;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.15);
+}
+
+.status-dot.ok {
+  background: lime;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.9);
+}
+
+.status-dot.bad {
+  background: #ff3b3b;
+  box-shadow: 0 0 8px rgba(255, 59, 59, 0.9);
+}
+
+.status-dot.unknown {
+  background: #777;
+  box-shadow: 0 0 8px rgba(180, 180, 180, 0.5);
 }
 /* --------------------
       TOP BUTTONS
@@ -481,6 +526,7 @@ body {
     border-radius: 15px;
     position: relative;
     overflow: hidden;
+    background: black;
     margin-inline: auto;   /* centers the clamped tiles inside each grid cell */
     transition:
         transform 0.18s ease-out,

@@ -8,11 +8,14 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::path::{PathBuf, Path};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Manager};
+use tokio::sync::Mutex as AsyncMutex;
+
+use tauri::{AppHandle, Manager, State};
 use tauri::Emitter;
 use serde::Serialize;
 
@@ -20,6 +23,17 @@ use serde::Serialize;
 struct ProgressPayload {
     percent: u8,
     message: String,
+}
+
+// --------------------
+// Preview proxy locking
+// --------------------
+
+#[derive(Default)]
+struct PreviewProxyLocks {
+    // One async mutex per clip path.
+    // Prevents concurrent encodes of the same preview proxy (which can produce partial files).
+    inner: AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 // --------------------
@@ -372,7 +386,21 @@ async fn hover_preview_error(
 }
 
 #[tauri::command]
-async fn ensure_preview_proxy(app: AppHandle, clip_path: String) -> Result<String, String> {
+async fn ensure_preview_proxy(
+    app: AppHandle,
+    proxy_locks: State<'_, PreviewProxyLocks>,
+    clip_path: String,
+) -> Result<String, String> {
+    // Serialize proxy generation per clip to avoid partially-written proxies being served.
+    let clip_key = clip_path.clone();
+    let clip_lock = {
+        let mut map = proxy_locks.inner.lock().await;
+        map.entry(clip_key)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
+    let _guard = clip_lock.lock().await;
+
     let ffmpeg = resolve_bundled_tool(&app, "ffmpeg")?;
     println!("ensure_preview_proxy|ffmpeg={}", ffmpeg.display());
 
@@ -391,6 +419,7 @@ async fn ensure_preview_proxy(app: AppHandle, clip_path: String) -> Result<Strin
         .ok_or("Invalid clip filename")?;
 
     let proxy_path = parent.join(format!("{stem}.preview.mp4"));
+    let proxy_tmp_path = parent.join(format!("{stem}.preview.tmp.mp4"));
 
     // If proxy already exists and is non-empty, reuse it.
     if let Ok(meta) = std::fs::metadata(&proxy_path) {
@@ -399,10 +428,13 @@ async fn ensure_preview_proxy(app: AppHandle, clip_path: String) -> Result<Strin
         }
     }
 
+    // Clean up any stale temp file from a previous failed/aborted run.
+    let _ = std::fs::remove_file(&proxy_tmp_path);
+
     // Run FFmpeg in a blocking task.
     let ffmpeg_clone = ffmpeg.clone();
     let input = input_path.clone();
-    let output = proxy_path.clone();
+    let output = proxy_tmp_path.clone();
 
     let ffmpeg_output = tokio::task::spawn_blocking(move || {
         Command::new(&ffmpeg_clone)
@@ -445,6 +477,7 @@ async fn ensure_preview_proxy(app: AppHandle, clip_path: String) -> Result<Strin
     .map_err(|e| format!("ffmpeg task panicked: {e}"))??;
 
     if !ffmpeg_output.status.success() {
+        let _ = std::fs::remove_file(&proxy_tmp_path);
         let stderr = String::from_utf8_lossy(&ffmpeg_output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
             "FFmpeg proxy encode failed".to_string()
@@ -453,10 +486,25 @@ async fn ensure_preview_proxy(app: AppHandle, clip_path: String) -> Result<Strin
         });
     }
 
-    // Verify proxy exists.
-    let meta = std::fs::metadata(&proxy_path).map_err(|e| e.to_string())?;
+    // Verify tmp proxy exists.
+    let meta = std::fs::metadata(&proxy_tmp_path).map_err(|e| e.to_string())?;
     if meta.len() == 0 {
+        let _ = std::fs::remove_file(&proxy_tmp_path);
         return Err("Proxy encode produced empty file".to_string());
+    }
+
+    // Atomically publish: rename tmp -> final. (On Windows, remove target first.)
+    match std::fs::remove_file(&proxy_path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("Failed to remove existing proxy: {e}")),
+    }
+
+    if let Err(e) = std::fs::rename(&proxy_tmp_path, &proxy_path) {
+        // Fallback for any odd rename edge-case.
+        std::fs::copy(&proxy_tmp_path, &proxy_path)
+            .map_err(|copy_err| format!("Failed to publish proxy (rename={e}, copy={copy_err})"))?;
+        let _ = std::fs::remove_file(&proxy_tmp_path);
     }
 
     Ok(proxy_path.to_string_lossy().to_string())
@@ -519,6 +567,7 @@ fn resolve_bundled_tool(app: &AppHandle, tool_name: &str) -> Result<PathBuf, Str
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(PreviewProxyLocks::default())
         .invoke_handler(tauri::generate_handler![
             detect_scenes,
             export_clips,

@@ -10,12 +10,3 @@ pyinstaller backend_script.py --onedir --noconsole --collect-submodules utils --
 
 
 
-PLAN:
-1) Check if user has HEVC installed on their computer on startup
-2) Check if clip is H.265 via helper function (using python stream function)
-
-If user has HEVC installed at the beginning ---> override all h.264 decoding
-If user does NOT have HEVC installed:
-    -> If imported episode is h.265, then return a boolean to decode clips to h.264, disable all clip preview and encode clips to h.264
-    -> If imported episode isn't, then proceed as normal and enable all clip preview
- 

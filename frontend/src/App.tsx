@@ -65,7 +65,6 @@ function App() {
     }
   }, []);
 
-
   const snapGridBigger = () => {
     setCols(c => Math.max(1, c - 1));
   };
@@ -220,25 +219,27 @@ function App() {
 
     const init = async () => {
       unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-        if (event.payload.type === 'over') {
+        const type = event.payload.type;
 
-          setIsDragging(true);
+        if (type === "over") {
+          // Only show the overlay for true external file drags.
+          const paths = (event.payload as { paths?: string[] }).paths;
+          const hasPaths = Array.isArray(paths) && paths.length > 0;
+          setIsDragging(hasPaths);
+          return;
+        }
 
-        } 
-        
-        else if (event.payload.type === "drop") {
+        if (type === "drop") {
           setIsDragging(false);
 
           const file = event.payload.paths?.[0];
           if (!file) return;
 
           handleImport(file);
-        }
-            
-        else {
-          setIsDragging(false);
+          return;
         }
 
+        setIsDragging(false);
       });
     }
 
@@ -311,7 +312,8 @@ function App() {
         <div className="content-wrapper">
           <Navbar 
            setSideBarEnabled={setSideBarEnabled}
-           userHasHEVC={userHasHEVC}/>
+           userHasHEVC={userHasHEVC}
+           videoIsHEVC={videoIsHEVC}/>
           <div className="main-content">
             <ImportButtons 
               cols={cols}

@@ -22,6 +22,173 @@ type ClipContainerProps = {
 };
 
 // --------------------
+// Viewport-Aware Proxy Queue
+// --------------------
+
+type DeferredProxy = {
+  promise: Promise<string>;
+  resolve: (proxyPath: string) => void;
+  reject: (err: unknown) => void;
+};
+
+type ProxyDemand = {
+  order: number; // lower = closer to top
+  priority: boolean; // hovered tiles get first dibs
+  seq: number; // higher = more recent
+};
+
+function useViewportAwareProxyQueue() {
+  const proxyCacheRef = useRef<Map<string, string>>(new Map());
+  const proxyDeferredRef = useRef<Map<string, DeferredProxy>>(new Map());
+  const proxyProcessingRef = useRef(false);
+
+  const proxyDemandRef = useRef<Map<string, ProxyDemand>>(new Map());
+  const proxyDemandSeqRef = useRef(0);
+  const proxyInFlightClipRef = useRef<string | null>(null);
+
+  const pickNextProxyClip = useCallback((): string | null => {
+    let best: { clipPath: string; demand: ProxyDemand } | null = null;
+
+    for (const [clipPath, demand] of proxyDemandRef.current) {
+      if (!proxyDeferredRef.current.has(clipPath)) continue;
+      if (proxyInFlightClipRef.current === clipPath) continue;
+
+      if (!best) {
+        best = { clipPath, demand };
+        continue;
+      }
+
+      const a = demand;
+      const b = best.demand;
+
+      const aPri = a.priority ? 1 : 0;
+      const bPri = b.priority ? 1 : 0;
+      if (aPri !== bPri) {
+        if (aPri > bPri) best = { clipPath, demand };
+        continue;
+      }
+
+      if (a.order !== b.order) {
+        if (a.order < b.order) best = { clipPath, demand };
+        continue;
+      }
+
+      if (a.seq !== b.seq) {
+        if (a.seq > b.seq) best = { clipPath, demand };
+      }
+    }
+
+    return best?.clipPath ?? null;
+  }, []);
+
+  const processProxyQueue = useCallback(async () => {
+    if (proxyProcessingRef.current) return;
+    proxyProcessingRef.current = true;
+
+    try {
+      while (true) {
+        const clipPath = pickNextProxyClip();
+        if (!clipPath) break;
+
+        // cache hit
+        const cached = proxyCacheRef.current.get(clipPath);
+        if (cached) {
+          const deferred = proxyDeferredRef.current.get(clipPath);
+          if (deferred) {
+            deferred.resolve(cached);
+            proxyDeferredRef.current.delete(clipPath);
+          }
+          continue;
+        }
+
+        const deferred = proxyDeferredRef.current.get(clipPath);
+        if (!deferred) continue;
+
+        try {
+          proxyInFlightClipRef.current = clipPath;
+          const proxyPath = await invoke<string>("ensure_preview_proxy", { clipPath });
+          if (!proxyPath) throw new Error("ensure_preview_proxy returned empty path");
+
+          proxyCacheRef.current.set(clipPath, proxyPath);
+          deferred.resolve(proxyPath);
+        } catch (err) {
+          deferred.reject(err);
+        } finally {
+          if (proxyInFlightClipRef.current === clipPath) proxyInFlightClipRef.current = null;
+          proxyDeferredRef.current.delete(clipPath);
+        }
+      }
+    } finally {
+      proxyProcessingRef.current = false;
+    }
+  }, [pickNextProxyClip]);
+
+  const requestProxySequential = useCallback(
+    (clipPath: string, priority: boolean) => {
+      const cached = proxyCacheRef.current.get(clipPath);
+      if (cached) return Promise.resolve(cached);
+
+      const existing = proxyDeferredRef.current.get(clipPath);
+      if (existing) return existing.promise;
+
+      let resolve!: (proxyPath: string) => void;
+      let reject!: (err: unknown) => void;
+      const promise = new Promise<string>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+
+      proxyDeferredRef.current.set(clipPath, { promise, resolve, reject });
+
+      // Accept priority here too so hover can jump ahead even before demand reporting runs.
+      const seq = ++proxyDemandSeqRef.current;
+      const existingDemand = proxyDemandRef.current.get(clipPath);
+      proxyDemandRef.current.set(clipPath, {
+        order: existingDemand?.order ?? Number.POSITIVE_INFINITY,
+        priority: priority || existingDemand?.priority === true,
+        seq,
+      });
+
+      void processProxyQueue();
+      return promise;
+    },
+    [processProxyQueue]
+  );
+
+  const reportProxyDemand = useCallback(
+    (clipPath: string, demand: { order: number; priority: boolean } | null) => {
+      if (!demand) {
+        proxyDemandRef.current.delete(clipPath);
+
+        // If this was enqueued but scrolled offscreen before processing, cancel it.
+        const deferred = proxyDeferredRef.current.get(clipPath);
+        if (
+          deferred &&
+          proxyInFlightClipRef.current !== clipPath &&
+          !proxyCacheRef.current.has(clipPath)
+        ) {
+          deferred.reject(new Error("proxy request cancelled (no longer visible)"));
+          proxyDeferredRef.current.delete(clipPath);
+        }
+        return;
+      }
+
+      const seq = ++proxyDemandSeqRef.current;
+      proxyDemandRef.current.set(clipPath, {
+        order: demand.order,
+        priority: demand.priority,
+        seq,
+      });
+
+      void processProxyQueue();
+    },
+    [processProxyQueue]
+  );
+
+  return { requestProxySequential, reportProxyDemand };
+}
+
+// --------------------
 //   Lazy Video Cell
 // --------------------
 
@@ -57,18 +224,14 @@ const LazyClip = memo(function LazyClip({
   videoIsHEVC,
   userHasHEVC,
 }: LazyClipProps) {
-  // LazyClip lifecycle in a nutshell:
-  // 1) IntersectionObserver sets isVisible (only render media when near viewport).
-  // 2) Hover/gridPreview toggles isHovered/showVideo (only mount <video> when needed).
-  // 3) A useEffect watches isHovered/gridPreview and calls video.play()/pause().
-  // 4) If playback fails or shows black, we ask Rust to generate an H.264 proxy.
-  // tracks whether this clip has entered the viewport at least once
+  // --------------------
+  // State / Refs
+  // --------------------
   const [isVisible, setIsVisible] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
-  const hasReportedErrorRef = useRef(false); // check if video error has been reported
-  const hasPlayedRef = useRef(false);
+  const hasReportedErrorRef = useRef(false);
   const hasFirstFrameRef = useRef(false);
   const videoFrameCallbackIdRef = useRef<number | null>(null);
   const proxyInFlightRef = useRef(false);
@@ -88,6 +251,12 @@ const LazyClip = memo(function LazyClip({
   // to mount/play the original stream and instead use an H.264 proxy.
   const needsHevcProxy = videoIsHEVC === true && userHasHEVC.current === false;
   const waitingForCodecInfo = videoIsHEVC === null && userHasHEVC.current === false;
+
+  const showVideo = isHovered || gridPreview;
+  const waitingForRequiredProxy = needsHevcProxy && effectiveSrc === clip.src;
+  const shouldMountVideo =
+    showVideo && !forceThumbnail && !waitingForRequiredProxy && !waitingForCodecInfo;
+  const shouldShowThumbnail = !showVideo || !shouldMountVideo || !isVideoReady;
 
   // When Preview-all is enabled and we need an HEVC proxy, register demand only while visible.
   // This allows the parent to re-prioritize work when the user scrolls.
@@ -111,7 +280,6 @@ const LazyClip = memo(function LazyClip({
 
   useEffect(() => {
     hasReportedErrorRef.current = false;
-    hasPlayedRef.current = false;
     hasFirstFrameRef.current = false;
     proxyInFlightRef.current = false;
 
@@ -135,8 +303,6 @@ const LazyClip = memo(function LazyClip({
   useEffect(() => {
     if (!needsHevcProxy) return;
     if (!isVisible) return;
-
-    const showVideo = isHovered || gridPreview;
     if (!showVideo) return;
 
     if (effectiveSrc !== clip.src) return; // already proxy
@@ -193,13 +359,21 @@ const LazyClip = memo(function LazyClip({
     try {
       videoFrameCallbackIdRef.current = (video as any).requestVideoFrameCallback(() => {
         hasFirstFrameRef.current = true;
-        hasPlayedRef.current = true;
         videoFrameCallbackIdRef.current = null;
+        setIsVideoReady(true);
       });
     } catch {
       // ignore
     }
   }, []);
+
+  // If we swap sources (e.g., original -> proxy), allow the next onError to run
+  // and re-arm thumbnail gating.
+  useEffect(() => {
+    hasReportedErrorRef.current = false;
+    hasFirstFrameRef.current = false;
+    setIsVideoReady(false);
+  }, [effectiveSrc]);
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -222,12 +396,7 @@ const LazyClip = memo(function LazyClip({
     const v = internalVideoRef.current;
     if (!v) return;
 
-    const showVideo = gridPreview || isHovered;
-    const waitingForRequiredProxy = needsHevcProxy && effectiveSrc === clip.src;
-    const shouldMountVideoNow =
-      showVideo && !forceThumbnail && !waitingForRequiredProxy && !waitingForCodecInfo;
-
-    const shouldPlay = showVideo && shouldMountVideoNow;
+    const shouldPlay = showVideo && shouldMountVideo;
     if (shouldPlay) {
       // Make autoplay rules deterministic (especially in WebView).
       v.muted = true;
@@ -247,7 +416,7 @@ const LazyClip = memo(function LazyClip({
         // ignore
       }
     }
-  }, [gridPreview, isHovered, effectiveSrc, clip.src, needsHevcProxy, forceThumbnail, waitingForCodecInfo]);
+  }, [showVideo, shouldMountVideo, effectiveSrc]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -263,17 +432,6 @@ const LazyClip = memo(function LazyClip({
     },
     [clip.id, registerVideoRef]
   );
-
-  // UI policy:
-  // - showVideo: hover or grid preview indicates we *want* to display motion.
-  // - shouldMountVideo: whether we actually mount the <video> element (skip it when showing a thumbnail
-  //   or when forceThumbnail is enabled during proxy generation / error states).
-  const showVideo = isHovered || gridPreview;
-  const waitingForRequiredProxy = needsHevcProxy && effectiveSrc === clip.src;
-  const shouldMountVideo = showVideo && !forceThumbnail && !waitingForRequiredProxy && !waitingForCodecInfo;
-
-  // Keep the thumbnail visible until the video is actually ready.
-  const shouldShowThumbnail = !showVideo || !shouldMountVideo || !isVideoReady;
 
   return (
     <div
@@ -301,6 +459,11 @@ const LazyClip = memo(function LazyClip({
             className="clip"
             src={`${convertFileSrc(clip.thumbnail)}?v=${importToken}`}
             style={{ opacity: shouldShowThumbnail ? 1 : 0 }}
+            draggable={false}
+            onDragStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           />
           {/* Video — only mounted when hovered or gridPreview, otherwise skip the DOM node entirely */}
           {shouldMountVideo && (
@@ -314,6 +477,11 @@ const LazyClip = memo(function LazyClip({
               preload="none"
               ref={setVideoRef}
               style={{ position: "absolute", inset: 0 }}
+              draggable={false}
+              onDragStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               onLoadedMetadata={(e) => {
                 // If the element mounts while hovered, give autoplay another nudge.
                 if (gridPreview || isHovered) {
@@ -322,16 +490,13 @@ const LazyClip = memo(function LazyClip({
                 }
               }}
               onPlaying={(e) => {
-                hasPlayedRef.current = true;
                 requestFirstFrame(e.currentTarget);
-                setIsVideoReady(true);
               }}
               onLoadedData={() => {
                 hasFirstFrameRef.current = true;
                 setIsVideoReady(true);
               }}
               onError={(e) => {
-                console.log(`onError fired!: userHasHEVC -> ${userHasHEVC} | videIsHEVC -> ${videoIsHEVC}`)
                 if (hasReportedErrorRef.current) return; // if clip already ran into an error
                 hasReportedErrorRef.current = true;      // flag clip as "ran into an error"
 
@@ -345,7 +510,7 @@ const LazyClip = memo(function LazyClip({
 
                 const v = e.currentTarget;
                 const errorCode = v.error?.code ?? null;
-                console.log(`Error on video -> CODE: ${errorCode}`)
+                if (import.meta.env.DEV) console.log(`Error on video -> CODE: ${errorCode}`);
                 // Signal Rust; no additional behavior yet.
                 invoke("hover_preview_error", {
                   clipId: clip.id,
@@ -370,177 +535,13 @@ const LazyClip = memo(function LazyClip({
 // --------------------
 
 export default function ClipsContainer(props: ClipContainerProps) {
+  // --------------------
+  // Refs
+  // --------------------
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const lastSelectedIndexRef = useRef<number | null>(null);
 
-  // Grid-preview optimization: run HEVC->H.264 proxy conversions sequentially.
-  // The queue is viewport-aware: when the user scrolls, offscreen requests are cancelled and
-  // the next conversion is selected from the currently visible tiles (hovered first, then top-most).
-  type DeferredProxy = {
-    promise: Promise<string>;
-    resolve: (proxyPath: string) => void;
-    reject: (err: unknown) => void;
-  };
-
-  const proxyCacheRef = useRef<Map<string, string>>(new Map());
-  const proxyDeferredRef = useRef<Map<string, DeferredProxy>>(new Map());
-  const proxyProcessingRef = useRef(false);
-
-  type ProxyDemand = {
-    order: number; // lower = earlier in grid (closer to top)
-    priority: boolean; // hovered tiles get first dibs
-    seq: number; // recency (higher = more recently demanded)
-  };
-
-  const proxyDemandRef = useRef<Map<string, ProxyDemand>>(new Map());
-  const proxyDemandSeqRef = useRef(0);
-  const proxyInFlightClipRef = useRef<string | null>(null);
-
-  const pickNextProxyClip = useCallback((): string | null => {
-    const demands = proxyDemandRef.current;
-    const deferreds = proxyDeferredRef.current;
-
-    let best: { clipPath: string; demand: ProxyDemand } | null = null;
-
-    for (const [clipPath, demand] of demands) {
-      if (!deferreds.has(clipPath)) continue;
-      if (proxyInFlightClipRef.current === clipPath) continue;
-
-      if (!best) {
-        best = { clipPath, demand };
-        continue;
-      }
-
-      // Sort key:
-      // 1) priority (true first)
-      // 2) order (smaller index first => top-most)
-      // 3) seq (more recent first)
-      const a = demand;
-      const b = best.demand;
-
-      const aPri = a.priority ? 1 : 0;
-      const bPri = b.priority ? 1 : 0;
-      if (aPri !== bPri) {
-        if (aPri > bPri) best = { clipPath, demand };
-        continue;
-      }
-
-      if (a.order !== b.order) {
-        if (a.order < b.order) best = { clipPath, demand };
-        continue;
-      }
-
-      if (a.seq !== b.seq) {
-        if (a.seq > b.seq) best = { clipPath, demand };
-      }
-    }
-
-    return best?.clipPath ?? null;
-  }, []);
-
-  const processProxyQueue = useCallback(async () => {
-    if (proxyProcessingRef.current) return;
-    proxyProcessingRef.current = true;
-
-    try {
-      while (true) {
-        const clipPath = pickNextProxyClip();
-        if (!clipPath) break;
-
-        // Cache hit.
-        const cached = proxyCacheRef.current.get(clipPath);
-        if (cached) {
-          const deferred = proxyDeferredRef.current.get(clipPath);
-          if (deferred) {
-            deferred.resolve(cached);
-            proxyDeferredRef.current.delete(clipPath);
-          }
-          continue;
-        }
-
-        const deferred = proxyDeferredRef.current.get(clipPath);
-        if (!deferred) continue;
-
-        try {
-          proxyInFlightClipRef.current = clipPath;
-          const proxyPath = await invoke<string>("ensure_preview_proxy", { clipPath });
-          if (!proxyPath) throw new Error("ensure_preview_proxy returned empty path");
-
-          proxyCacheRef.current.set(clipPath, proxyPath);
-          deferred.resolve(proxyPath);
-        } catch (err) {
-          deferred.reject(err);
-        } finally {
-          if (proxyInFlightClipRef.current === clipPath) proxyInFlightClipRef.current = null;
-          proxyDeferredRef.current.delete(clipPath);
-        }
-      }
-    } finally {
-      proxyProcessingRef.current = false;
-    }
-  }, [pickNextProxyClip]);
-
-  const requestProxySequential = useCallback(
-    (clipPath: string, priority: boolean) => {
-      const cached = proxyCacheRef.current.get(clipPath);
-      if (cached) return Promise.resolve(cached);
-
-      const existing = proxyDeferredRef.current.get(clipPath);
-      if (existing) return existing.promise;
-
-      let resolve!: (proxyPath: string) => void;
-      let reject!: (err: unknown) => void;
-      const promise = new Promise<string>((res, rej) => {
-        resolve = res;
-        reject = rej;
-      });
-
-      proxyDeferredRef.current.set(clipPath, { promise, resolve, reject });
-
-      // Demand/priority is tracked separately (viewport-aware). We still accept `priority`
-      // here to avoid any chance of delayed hover prioritization.
-      const seq = ++proxyDemandSeqRef.current;
-      const existingDemand = proxyDemandRef.current.get(clipPath);
-      proxyDemandRef.current.set(clipPath, {
-        order: existingDemand?.order ?? Number.POSITIVE_INFINITY,
-        priority: priority || existingDemand?.priority === true,
-        seq,
-      });
-
-      void processProxyQueue();
-      return promise;
-    },
-    [processProxyQueue]
-  );
-
-  const reportProxyDemand = useCallback(
-    (clipPath: string, demand: { order: number; priority: boolean } | null) => {
-      if (!demand) {
-        proxyDemandRef.current.delete(clipPath);
-
-        // If this item was queued but scrolled offscreen before being processed, cancel it.
-        // This keeps the queue focused on what the user can currently see.
-        const deferred = proxyDeferredRef.current.get(clipPath);
-        if (deferred && proxyInFlightClipRef.current !== clipPath && !proxyCacheRef.current.has(clipPath)) {
-          deferred.reject(new Error("proxy request cancelled (no longer visible)"));
-          proxyDeferredRef.current.delete(clipPath);
-        }
-
-        return;
-      }
-
-      const seq = ++proxyDemandSeqRef.current;
-      proxyDemandRef.current.set(clipPath, {
-        order: demand.order,
-        priority: demand.priority,
-        seq,
-      });
-
-      // Kick the processor in case it was idle and we just scrolled new items into view.
-      void processProxyQueue();
-    },
-    [processProxyQueue]
-  );
+  const { requestProxySequential, reportProxyDemand } = useViewportAwareProxyQueue();
 
   const effectiveCols = props.loading
     ? props.cols

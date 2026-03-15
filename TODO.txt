@@ -14,6 +14,7 @@ Add more frontend stuff:
     -  
 - Create settings which includes the directly for clip navigation, color changers, background changers, and more
 
-- Bundle everything together into one .exe using npm run tauri build, and use PyInstaller to bundle venv and all
-python dependencies, then import that same python into main.rs
-
+TODO RIGHT NOW:
+- Add visual checks for hevc on the user level and the video level
+- Add a "focused" variable that tracks the ones the user clicks, and add "selected" dots on each video thumbnail to show whether they're selected
+  or not 
