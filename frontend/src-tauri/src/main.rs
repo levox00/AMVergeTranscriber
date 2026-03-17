@@ -599,6 +599,7 @@ fn resolve_bundled_tool(app: &AppHandle, tool_name: &str) -> Result<PathBuf, Str
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PreviewProxyLocks::default())
         .invoke_handler(tauri::generate_handler![
             detect_scenes,

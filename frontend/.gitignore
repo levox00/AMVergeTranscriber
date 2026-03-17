@@ -30,7 +30,12 @@ backend/output_test/
 frontend/src-tauri/bin/
 *.log
 
-# ---- Large media files (don’t commit) ----
+# ---- Tauri signing keys ----
+**/.tauri/
+**/.tauri/*.key
+**/.tauri/*.key.pub
+
+# ---- Large media files ----
 *.mp4
 *.mkv
 *.mov
