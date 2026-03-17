@@ -2,8 +2,8 @@ import VideoPlayer from "../components/VideoPlayer.tsx"
 import InfoBox from "../components/InfoBox.tsx"
 import React from "react";
 type PreviewContainerProps = {
-  selectedClip: string | null;
-  selectedClipThumbnail: string | null;
+  focusedClip: string | null;
+  focusedClipThumbnail: string | null;
   selectedClips: Set<string>;
   videoIsHEVC: boolean | null;
   userHasHEVC: React.RefObject<boolean>;
@@ -22,12 +22,12 @@ export default function PreviewContainer (props: PreviewContainerProps) {
   return (
     <main  className="preview-container" >
       <div className="preview-window">
-        {props.selectedClip ? (
+        {props.focusedClip ? (
           <VideoPlayer 
-           selectedClip={props.selectedClip}
+           selectedClip={props.focusedClip}
            videoIsHEVC={props.videoIsHEVC}
            userHasHEVC={props.userHasHEVC}
-           posterPath={props.selectedClipThumbnail}
+           posterPath={props.focusedClipThumbnail}
            importToken={props.importToken}
           />
           ) : (

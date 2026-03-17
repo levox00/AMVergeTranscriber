@@ -86,16 +86,77 @@ def generate_keyframes_old_ffmpeg(video_path: str):
     ]
 
 def generate_keyframes(video_path: str):
-    keyframes = []
+    def _decode_keyframe_times(container, stream):
+        # Still fast: decoder is instructed to skip non-key frames.
+        times: list[float] = []
+        try:
+            stream.codec_context.skip_frame = "NONKEY"
+        except Exception:
+            pass
+
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            t = float(frame.pts * stream.time_base)  # type: ignore
+            times.append(t)
+        return times
+
+    def _looks_pathological(times: list[float], duration_s: float | None) -> bool:
+        # If cut points are extremely dense, segmenting becomes unusable.
+        if len(times) < 2:
+            return True
+
+        # Basic duplicate/monotonic sanity.
+        times_sorted = sorted(times)
+        # Any non-increasing sequence suggests bad timestamps.
+        for a, b in zip(times_sorted, times_sorted[1:]):
+            if b <= a:
+                return True
+
+        if duration_s and duration_s > 0:
+            # > 10 cuts/sec is almost certainly wrong for "keyframes".
+            if (len(times_sorted) / duration_s) > 10.0:
+                return True
+
+        # If median spacing is tiny, it will produce near-1-frame segments.
+        deltas = [b - a for a, b in zip(times_sorted, times_sorted[1:])]
+        deltas.sort()
+        median = deltas[len(deltas) // 2]
+        return median < 0.05
+
+    keyframes: list[float] = []
     with av.open(video_path) as container:
         stream = container.streams.video[0]
-        stream.codec_context.skip_frame = "NONKEY"  # only decode keyframes
-        for packet in container.demux(stream):
-            if packet.pts is None:
-                continue
-            if packet.is_keyframe:
-                time = float(packet.pts * stream.time_base) # type: ignore
-                keyframes.append(time)
+
+        duration_s: float | None = None
+        try:
+            if container.duration is not None:
+                duration_s = float(container.duration) / 1_000_000.0
+        except Exception:
+            duration_s = None
+
+        # Fast path: packet flags.
+        try:
+            for packet in container.demux(stream):
+                if packet.pts is None:
+                    continue
+                if packet.is_keyframe:
+                    keyframes.append(float(packet.pts * stream.time_base))  # type: ignore
+        except Exception:
+            keyframes = []
+
+        # If packet flags are missing/unreliable, fall back to decode-based keyframes.
+        if not keyframes or _looks_pathological(keyframes, duration_s):
+            try:
+                # Re-open to reset demux/decode state.
+                with av.open(video_path) as container2:
+                    stream2 = container2.streams.video[0]
+                    keyframes = _decode_keyframe_times(container2, stream2)
+            except Exception:
+                return []
+
+    # Normalize: sort + de-dupe small floating noise.
+    keyframes = sorted(set(round(t, 6) for t in keyframes if t is not None and t >= 0.0))
     return keyframes
 
 def keyframe_windows(keyframes, radius=1.0, fps=24.0):

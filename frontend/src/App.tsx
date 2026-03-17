@@ -15,6 +15,7 @@ function App() {
   Create setSelectedClip function, whatever gets passed into it
   becomes selectedClip
   */
+  const [focusedClip, setFocusedClip] = useState<string | null>(null);
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
   const [importToken, setImportToken] = useState(() => Date.now().toString());
   const [clips, setClips] = useState<{ id: string; src: string; thumbnail: string; originalName?: string }[]>([]);
@@ -327,24 +328,24 @@ function App() {
               onImport={onImportClick}
               loading={loading}
             />
-            <div className="main" >
-              <MainLayout 
-              cols={cols}
-              gridSize={gridSize}
-              gridRef={gridRef}
-              gridPreview={gridPreview}
-              selectedClips={selectedClips}
-              setSelectedClips={setSelectedClips}
-              clips={clips}
-              importToken={importToken}
-              loading={loading}
-              isEmpty={isEmpty}
-              handleExport={handleExport}
-              sideBarEnabled={sideBarEnabled}
-              videoIsHEVC={videoIsHEVC}
-              userHasHEVC={userHasHEVC}
-            />
-            </div>
+            <MainLayout 
+            cols={cols}
+            gridSize={gridSize}
+            gridRef={gridRef}
+            gridPreview={gridPreview}
+            selectedClips={selectedClips}
+            setSelectedClips={setSelectedClips}
+            clips={clips}
+            importToken={importToken}
+            loading={loading}
+            isEmpty={isEmpty}
+            handleExport={handleExport}
+            sideBarEnabled={sideBarEnabled}
+            videoIsHEVC={videoIsHEVC}
+            userHasHEVC={userHasHEVC}
+            focusedClip={focusedClip}
+            setFocusedClip={setFocusedClip}
+          />
           </div>
         </div>
       </div>

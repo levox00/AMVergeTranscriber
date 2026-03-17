@@ -18,3 +18,5 @@ TODO RIGHT NOW:
 - Add visual checks for hevc on the user level and the video level
 - Add a "focused" variable that tracks the ones the user clicks, and add "selected" dots on each video thumbnail to show whether they're selected
   or not 
+- Fix video encoding, make it 100% safe on merge so that it can be imported into AE 
+- Fix mp4 files being seen as images

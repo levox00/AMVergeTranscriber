@@ -22,14 +22,15 @@ type LayoutProps = {
     sideBarEnabled: boolean;
     videoIsHEVC: boolean | null;
     userHasHEVC: React.RefObject<boolean>
+    focusedClip: string | null;
+    setFocusedClip: React.Dispatch<React.SetStateAction<string | null>>
 };
 export default function MainLayout(props: LayoutProps) {
     const [leftWidth, setLeftWidth] = useState(65);
-    const [selectedClip, setSelectedClip] = useState<string | null>(null);
 
-        const selectedClipThumbnail = selectedClip
-            ? props.clips.find((c) => c.src === selectedClip)?.thumbnail ?? null
-            : null;
+    const focusedClipThumbnail = props.focusedClip
+        ? props.clips.find((c) => c.src === props.focusedClip)?.thumbnail ?? null
+        : null;
     /*
     startResize is the function used to resize the PreviewContainer and ClipsContainer
     Notes:
@@ -66,19 +67,20 @@ export default function MainLayout(props: LayoutProps) {
         <div className="split-layout">
             <div className="left-pane" style={{ width: `${leftWidth}%`}}>
                 <ClipsContainer 
-                 onSelectClip={setSelectedClip} 
-                 gridSize={props.gridSize}
-                 gridRef={props.gridRef}
-                 cols={props.cols}
-                 gridPreview={props.gridPreview}
-                 selectedClips={props.selectedClips}
-                 setSelectedClips={props.setSelectedClips}
-                 clips={props.clips}
-                 importToken={props.importToken}
-                 loading={props.loading}
-                 isEmpty={props.isEmpty}
-                 videoIsHEVC={props.videoIsHEVC}
-                 userHasHEVC={props.userHasHEVC}
+                    gridSize={props.gridSize}
+                    gridRef={props.gridRef}
+                    cols={props.cols}
+                    gridPreview={props.gridPreview}
+                    selectedClips={props.selectedClips}
+                    setSelectedClips={props.setSelectedClips}
+                    clips={props.clips}
+                    importToken={props.importToken}
+                    loading={props.loading}
+                    isEmpty={props.isEmpty}
+                    videoIsHEVC={props.videoIsHEVC}
+                    userHasHEVC={props.userHasHEVC}
+                    setFocusedClip={props.setFocusedClip}
+                    focusedClip={props.focusedClip}
                  />
             </div>
             
@@ -94,8 +96,8 @@ export default function MainLayout(props: LayoutProps) {
 
             <div className="right-pane" style={{ width: `${100 - leftWidth}%` }}>
                 <PreviewContainer 
-                selectedClip={selectedClip}
-                selectedClipThumbnail={selectedClipThumbnail}
+                focusedClip={props.focusedClip}
+                focusedClipThumbnail={focusedClipThumbnail}
                 selectedClips={props.selectedClips}
                 handleExport={props.handleExport}
                 videoIsHEVC={props.videoIsHEVC}

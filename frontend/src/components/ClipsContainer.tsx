@@ -6,7 +6,6 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 // --------------------
 
 type ClipContainerProps = {
-  onSelectClip: (clip: string) => void;
   gridSize: number;
   gridRef: React.RefObject<HTMLDivElement | null>;
   cols: number;
@@ -19,6 +18,8 @@ type ClipContainerProps = {
   isEmpty: boolean;
   videoIsHEVC: boolean | null;
   userHasHEVC: React.RefObject<boolean>;
+  setFocusedClip: React.Dispatch<React.SetStateAction<string | null>>;
+  focusedClip: string | null;
 };
 
 // --------------------
@@ -196,11 +197,18 @@ type LazyClipProps = {
   clip: { id: string; src: string, thumbnail: string };
   index: number;
   importToken: string;
-  isSelected: boolean;
+  isExportSelected: boolean;
+  isFocused: boolean;
   gridPreview: boolean;
   requestProxySequential: (clipPath: string, priority: boolean) => Promise<string>;
   reportProxyDemand: (clipPath: string, demand: { order: number; priority: boolean } | null) => void;
   onClipClick: (
+    clipId: string,
+    clipSrc: string,
+    index: number,
+    e: React.MouseEvent<HTMLDivElement>
+  ) => void;
+  onClipDoubleClick: (
     clipId: string,
     clipSrc: string,
     index: number,
@@ -215,11 +223,13 @@ const LazyClip = memo(function LazyClip({
   clip,
   index,
   importToken,
-  isSelected,
+  isExportSelected,
+  isFocused,
   gridPreview,
   requestProxySequential,
   reportProxyDemand,
   onClipClick,
+  onClipDoubleClick,
   registerVideoRef,
   videoIsHEVC,
   userHasHEVC,
@@ -425,6 +435,13 @@ const LazyClip = memo(function LazyClip({
     [clip.id, clip.src, index, onClipClick]
   );
 
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      onClipDoubleClick(clip.id, clip.src, index, e);
+    },
+    [clip.id, clip.src, index, onClipDoubleClick]
+  );
+
   const setVideoRef = useCallback(
     (el: HTMLVideoElement | null) => {
       internalVideoRef.current = el;
@@ -436,8 +453,9 @@ const LazyClip = memo(function LazyClip({
   return (
     <div
       ref={wrapperRef}
-      className={`clip-wrapper ${isSelected ? "selected" : ""}`}
+      className={`clip-wrapper ${isFocused ? "focused" : ""}`}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       // Hover toggles isHovered, which controls whether the <video> mounts and whether playback starts.
       onMouseEnter={() => {
         // IntersectionObserver can lag by a tick; hovering should always mount/play immediately.
@@ -452,6 +470,7 @@ const LazyClip = memo(function LazyClip({
         setIsVideoReady(false);
       }}
     >
+      <span className={`clip-export-dot ${isExportSelected ? "ok" : ""}`} />
       {isVisible ? (
         <>
           {/* Thumbnail — always rendered when visible, hidden on hover */}
@@ -539,7 +558,6 @@ export default function ClipsContainer(props: ClipContainerProps) {
   // Refs
   // --------------------
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  const lastSelectedIndexRef = useRef<number | null>(null);
 
   const { requestProxySequential, reportProxyDemand } = useViewportAwareProxyQueue();
 
@@ -563,40 +581,52 @@ export default function ClipsContainer(props: ClipContainerProps) {
         (window as any).__amverge_lastClipClickSrc = clipSrc;
       }
 
-      const lastSelectedIndex = lastSelectedIndexRef.current;
+      // Shift-click: select export range from the current focused clip.
+      if (isShift) {
+        const anchorIndex = props.focusedClip
+          ? props.clips.findIndex((c) => c.src === props.focusedClip)
+          : -1;
+        const startIndex = anchorIndex !== -1 ? anchorIndex : index;
+        const [start, end] = [startIndex, index].sort((a, b) => a - b);
+        const rangeIds = props.clips.slice(start, end + 1).map((c) => c.id);
 
-      // Preserve existing behavior: shift-range selects only (doesn't change the preview player).
-      if (isShift && lastSelectedIndex !== null) {
-        const currentIndex = props.clips.findIndex((c) => c.id === clipId);
-        if (currentIndex !== -1) {
-          const [start, end] = [lastSelectedIndex, currentIndex].sort((a, b) => a - b);
-          const range = props.clips.slice(start, end + 1).map((c) => c.id);
-          startTransition(() => {
-            props.setSelectedClips(new Set(range));
-          });
-        }
+        startTransition(() => {
+          props.setSelectedClips(new Set(rangeIds));
+        });
         return;
       }
 
-      // Preview player update should be "urgent".
-      props.onSelectClip(clipSrc);
-
-      // Selection can be non-urgent; this avoids blocking the video swap on big grids.
-      startTransition(() => {
-        if (isCtrl) {
+      // Ctrl/Cmd-click: toggle export selection.
+      if (isCtrl) {
+        startTransition(() => {
           props.setSelectedClips((prev) => {
             const next = new Set(prev);
             next.has(clipId) ? next.delete(clipId) : next.add(clipId);
             return next;
           });
-        } else {
-          props.setSelectedClips(new Set([clipId]));
-        }
-      });
+        });
+        return;
+      }
 
-      lastSelectedIndexRef.current = index;
+      // Default single-click: focus only (preview), no export selection changes.
+      props.setFocusedClip(clipSrc);
     },
-    [props.clips, props.onSelectClip, props.setSelectedClips]
+    [props.clips, props.focusedClip, props.setFocusedClip, props.setSelectedClips]
+  );
+
+  const onClipDoubleClick = useCallback(
+    (clipId: string, clipSrc: string, _index: number, _e: React.MouseEvent<HTMLDivElement>) => {
+      // Double-click: focus (first click already does), plus toggle export selection.
+      props.setFocusedClip(clipSrc);
+      startTransition(() => {
+        props.setSelectedClips((prev) => {
+          const next = new Set(prev);
+          next.has(clipId) ? next.delete(clipId) : next.add(clipId);
+          return next;
+        });
+      });
+    },
+    [props.setFocusedClip, props.setSelectedClips]
   );
 
   return (
@@ -624,12 +654,14 @@ export default function ClipsContainer(props: ClipContainerProps) {
                     clip={clip}
                     index={index}
                     importToken={props.importToken}
-                    isSelected={props.selectedClips.has(clip.id)}
+                    isExportSelected={props.selectedClips.has(clip.id)}
+                    isFocused={props.focusedClip === clip.src}
                     gridPreview={props.gridPreview}
                     requestProxySequential={requestProxySequential}
                     reportProxyDemand={reportProxyDemand}
                     registerVideoRef={registerVideoRef}
                     onClipClick={onClipClick}
+                    onClipDoubleClick={onClipDoubleClick}
                     videoIsHEVC={props.videoIsHEVC}
                     userHasHEVC={props.userHasHEVC}
                   />

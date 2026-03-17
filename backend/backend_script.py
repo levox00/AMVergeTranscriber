@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import tempfile
-from amverge_utils.video_utils import generate_keyframes, emit_progress, get_binary
+from amverge_utils.video_utils import generate_keyframes, emit_progress, get_binary, merge_short_scenes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import av
 from PIL import Image
@@ -103,6 +103,8 @@ def trim_scenes_at_keyframes(video_path: str, output_dir: str):
     
     # Skip the first keyframe(0.0)
     cut_points = sorted(keyframes[1:])
+    # Guard against pathological keyframe lists creating tiny/1-frame segments.
+    cut_points = merge_short_scenes([0.0] + cut_points, min_duration=0.25)[1:]
     emit_progress(50, f"Cutting {len(cut_points)} scenes...")
 
     out_pattern = os.path.join(output_dir, f"{file_name}_%04d.mp4")

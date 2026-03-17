@@ -288,8 +288,40 @@ async fn export_clips(
                 list_path
                     .to_str()
                     .ok_or("Invalid concat list path")?,
-                "-c",
-                "copy",
+                // Normalize timestamps and re-encode for maximum compatibility (e.g., After Effects).
+                "-fflags",
+                "+genpts",
+                "-avoid_negative_ts",
+                "make_zero",
+                // Video: widely-compatible H.264
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "high",
+                "-level",
+                "4.1",
+                // Keep quality high; encoding is the cost we pay for reliability.
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                // Audio: AAC stereo
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                // Streamable MP4
+                "-movflags",
+                "+faststart",
+                // Avoid rare muxing queue overflows on tricky inputs.
+                "-max_muxing_queue_size",
+                "1024",
                 save_path
                     .to_str()
                     .ok_or("Invalid output path")?,
