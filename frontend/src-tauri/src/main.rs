@@ -52,6 +52,7 @@ fn main() {
             commands::discord::start_discord_rpc,
             commands::discord::update_discord_rpc,
             commands::discord::stop_discord_rpc,
+            commands::transcribe::transcribe_clip,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

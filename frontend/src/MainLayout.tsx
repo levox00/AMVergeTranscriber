@@ -5,15 +5,20 @@ import { useAppStateStore } from "./stores/appStore";
 
 export default function MainLayout() {
     const [leftWidth, setLeftWidth] = useState(65);
-    const focusedClip = useAppStateStore(s => s.focusedClip);
+    const focusedClipId = useAppStateStore(s => s.focusedClipId);
+    const focusedClipObj = useAppStateStore(s => s.clips.find(c => c.id === focusedClipId));
+    const focusedClipSrc = focusedClipObj?.src || null;
     const clips = useAppStateStore(s => s.clips);
+
+    console.log('focusedClipId:', focusedClipId);
+    console.log('focusedClipObj:', focusedClipObj);
 
     const focusedClipThumbnail = useMemo(
         () =>
-            focusedClip
-                ? clips.find((c) => c.src === focusedClip)?.thumbnail ?? null
+            focusedClipId
+                ? clips.find((c) => c.src === focusedClipId)?.thumbnail ?? null
                 : null,
-        [focusedClip, clips]
+        [focusedClipId, clips]
     );
 
     const resizeCleanupRef = useRef<(() => void) | null>(null);
@@ -63,7 +68,8 @@ export default function MainLayout() {
 
                 <div className="right-pane" style={{ width: `${100 - leftWidth}%` }}>
                     <PreviewContainer
-                        sourceClip={focusedClip}
+                        sourceClipId={focusedClipId}
+                        sourceClipSrc={focusedClipSrc}    
                         sourceClipThumbnail={focusedClipThumbnail}
                     />
                 </div>

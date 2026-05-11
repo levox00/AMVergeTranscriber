@@ -13,7 +13,7 @@ function resolveSetterValue<T>(prev: T, value: SetterValue<T>): T {
    ========================= */
 export type AppState = {
   // App core state
-  focusedClip: string | null;
+  focusedClipId: string | null;
   selectedClips: Set<string>;
   clips: ClipItem[];
   videoIsHEVC: boolean | null;
@@ -34,13 +34,13 @@ export type AppState = {
 };
 
 export type AppStateStore = AppState & {
-  setFocusedClip: (clip: SetterValue<string | null>) => void;
+  setFocusedClipId: (clipId: SetterValue<string | null>) => void;
   setSelectedClips: (clips: SetterValue<Set<string>>) => void;
   setClips: (clips: SetterValue<ClipItem[]>) => void;
+  setClipTranscription: (clipId: string, text: string) => void;
   setVideoIsHEVC: (isHEVC: SetterValue<boolean | null>) => void;
   setUserHasHEVC: (hasHEVC: boolean) => void;
   setImportedVideoPath: (path: SetterValue<string | null>) => void;
-  
   setLoading: (loading: boolean) => void;
   setProgress: (progress: number) => void;
   setProgressMsg: (msg: string) => void;
@@ -53,7 +53,7 @@ export type AppStateStore = AppState & {
 };
 
 export const DEFAULT_APP_STATE: AppState = {
-  focusedClip: null,
+  focusedClipId: null,
   selectedClips: new Set(),
   clips: [],
   videoIsHEVC: null,
@@ -75,9 +75,15 @@ export const DEFAULT_APP_STATE: AppState = {
 export const useAppStateStore = create<AppStateStore>()((set) => ({
   ...DEFAULT_APP_STATE,
 
-  setFocusedClip: (val) => set((s) => ({ focusedClip: resolveSetterValue(s.focusedClip, val) })),
+  setFocusedClipId: (val) => set((s) => ({ focusedClipId: resolveSetterValue(s.focusedClipId, val) })),
   setSelectedClips: (val) => set((s) => ({ selectedClips: resolveSetterValue(s.selectedClips, val) })),
   setClips: (val) => set((s) => ({ clips: resolveSetterValue(s.clips, val) })),
+  setClipTranscription: (clipId, text) =>
+    set((state) => ({
+        clips: state.clips.map((clip) =>
+            clip.id === clipId ? { ...clip, transcription: text } : clip
+        ),
+    })),
   setVideoIsHEVC: (val) => set((s) => ({ videoIsHEVC: resolveSetterValue(s.videoIsHEVC, val) })),
   setUserHasHEVC: (hasHEVC) => set({ userHasHEVC: hasHEVC }),
   setImportedVideoPath: (val) => set((s) => ({ importedVideoPath: resolveSetterValue(s.importedVideoPath, val) })),

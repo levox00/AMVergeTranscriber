@@ -7,6 +7,9 @@ import {
   FaPencilAlt,
 } from "react-icons/fa";
 import Dropdown from "../common/Dropdown";
+import { ClipItem } from "../../types/domain";
+import { useThemeSettingsStore } from "../../stores/settingsStore";
+
 import { useAppStateStore } from "../../stores/appStore.ts";
 import { useAppPersistedStore } from "../../stores/appStore.ts";
 import { useUIStateStore } from "../../stores/UIStore.ts";
@@ -19,7 +22,8 @@ import {
   supportsClipMerge,
 } from "../../features/export/profiles.ts";
 type PreviewContainerProps = {
-  sourceClip: string | null;
+  sourceClipSrc: string | null;         // File path for video
+  sourceClipId: string | null;     
   sourceClipThumbnail: string | null;
   onTimeUpdate?: (time: number) => void;
 };
@@ -30,6 +34,29 @@ export default function PreviewContainer(props: PreviewContainerProps) {
 
   const clips = useAppStateStore(s => s.clips);
   const selectedClips = useAppStateStore(s => s.selectedClips);
+
+  const transcriptionEnabled = useThemeSettingsStore((s) => s.transcriptionEnabled);
+  const [key, setKey] = React.useState(0);
+
+  const [selectedClip, setSelectedClip] = React.useState<ClipItem | null>(null);
+
+  // Look up clip by ID when clips load or sourceClip changes
+  React.useEffect(() => {
+    if (props.sourceClipId && clips.length > 0) {
+      const clip = clips.find(c => c.id === props.sourceClipId);
+      setSelectedClip(clip || null); // Fix: handle undefined
+      console.log('Found clip by ID:', clip);
+      console.log('Clip transcription:', clip?.transcription);
+    }
+  }, [props.sourceClipId, clips]);
+  
+  const transcription = selectedClip?.transcription;
+  const clipsLoaded = clips.length > 0;
+
+  console.log('Clips loaded:', clipsLoaded);
+  console.log('Looking for clip with ID:', props.sourceClipId);
+  console.log('Found clip:', selectedClip);
+  console.log('Transcription:', transcription);
 
   const videoIsHEVC = useAppStateStore(s => s.videoIsHEVC);
   const userHasHEVC = useAppStateStore(s => s.userHasHEVC);
@@ -63,9 +90,9 @@ export default function PreviewContainer(props: PreviewContainerProps) {
   const canMergeWithActiveProfile = supportsClipMerge(activeExportProfile.workflow) && activeExportProfile.mergeEnabled;
   const hasSelectedClips = selectedClips.size > 0;
 
-  const sourceClipObj = props.sourceClip ? clips.find(c => c.src === props.sourceClip) : null;
+  const sourceClipObj = props.sourceClipSrc ? clips.find(c => c.src === props.sourceClipSrc) : null;
   const mergedSrcs = sourceClipObj?.mergedSrcs;
-  const hasSource = !!props.sourceClip;
+  const hasSource = !!props.sourceClipSrc;
 
   React.useEffect(() => {
     if (showMergeNameModal) {
@@ -75,6 +102,35 @@ export default function PreviewContainer(props: PreviewContainerProps) {
       });
     }
   }, [showMergeNameModal]);
+
+  React.useEffect(() => {
+    // Force re-render when transcription changes
+    setKey(prev => prev + 1);
+  }, [transcription]);
+
+  React.useEffect(() => {
+    console.log('🖱️ sourceClipSrc changed to:', props.sourceClipSrc);
+    console.log('🖱️ sourceClipId changed to:', props.sourceClipId);
+  }, [props.sourceClipSrc, props.sourceClipId]);
+
+  React.useEffect(() => {
+    // When ANY clip's transcription updates, check if it's our selected clip
+    const updatedClip = clips.find(c => c.id === props.sourceClipId);
+    if (updatedClip && updatedClip.transcription !== selectedClip?.transcription) {
+      console.log('🔄 Transcription updated for selected clip, forcing re-render');
+      setSelectedClip(updatedClip);
+      setKey(prev => prev + 1);
+    }
+  }, [clips, props.sourceClipId, selectedClip?.transcription]);
+
+  React.useEffect(() => {
+  if (props.sourceClipId && clips.length > 0) {
+    const clip = clips.find(c => c.id === props.sourceClipId);
+    console.log(`🎬 PreviewContainer - Looking for clip ID: ${props.sourceClipId}`);
+    console.log(`🎬 Found clip: ${clip?.id}, transcription: ${clip?.transcription || 'none'}`);
+    setSelectedClip(clip || null);
+  }
+  }, [props.sourceClipId, clips]);
 
   const onExportClick = () => {
     if (!hasSelectedClips) return;
@@ -101,8 +157,8 @@ export default function PreviewContainer(props: PreviewContainerProps) {
           <div className="preview-window-wrapper source" key="source-wrapper">
             <div className="preview-window">
               <VideoPlayer
-                key={`source-player-${props.sourceClip}`}
-                selectedClip={props.sourceClip!}
+                key={`source-player-${props.sourceClipSrc}-${key}`}
+                selectedClip={props.sourceClipSrc!}
                 mergedSrcs={mergedSrcs}
                 videoIsHEVC={videoIsHEVC}
                 userHasHEVC={userHasHEVC}
@@ -120,6 +176,23 @@ export default function PreviewContainer(props: PreviewContainerProps) {
           </div>
         )}
       </div>
+      
+
+
+      {hasSource && clipsLoaded && transcription && (
+        <div className="transcription-box">
+          <h4>Transcription</h4>
+          <p>{transcription}</p>
+        </div>
+      )}
+      {hasSource && clipsLoaded && !transcription && transcriptionEnabled && (
+        <div className="transcription-box loading">
+          <p>Transcribing...</p>
+        </div>
+      )}
+
+
+
       <div className="export-panel">
         <div className="export-header">
           <FaFileExport className="header-icon" />

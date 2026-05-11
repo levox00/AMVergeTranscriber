@@ -19,7 +19,7 @@ export default function useEpisodePanelState() {
 		if (!selectedEpisode) return;
 
 		appState.setSelectedClips(new Set());
-		appState.setFocusedClip(null);
+		appState.setFocusedClipId(null);
 		episodeRuntimeState.setSelectedEpisodeId(episodeId);
 		episodeRuntimeState.setOpenedEpisodeId(episodeId);
 		episodeRuntimeState.setSelectedFolderId(null);

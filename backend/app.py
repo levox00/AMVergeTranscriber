@@ -5,8 +5,12 @@ import sys
 import tempfile
 import threading
 import time
+from faster_whisper import WhisperModel
+import tempfile
+import shlex
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+
 
 # pyrefly: ignore [missing-import]
 import av
@@ -18,6 +22,7 @@ from utils.progress import emit_event
 from utils.cs_scenedetect import check_pair_similar
 
 INITIAL_THUMB_THRESHOLD = 24
+
 
 # Running commands like ffmpeg can open a command window on Windows.
 # This prevents that when the backend is launched from the app.
@@ -33,6 +38,51 @@ else:
 
 _ff_ext = ".exe" if sys.platform == "win32" else ""
 FFMPEG = get_binary(f"ffmpeg{_ff_ext}")
+
+
+_whisper_model = None
+
+def get_whisper_model(model_size="tiny"):
+    global _whisper_model
+    if _whisper_model is None:
+        # CPU only, int8 quantization for small size
+        _whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    return _whisper_model
+
+def transcribe_clip(video_path: str, start: float, end: float, source_lang: str, target_lang: str) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_wav = tmp.name
+    
+    try:
+        # Cut audio with ffmpeg (same as before)
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", format_timestamp(start),
+            "-to", format_timestamp(end),
+            "-i", video_path,
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            tmp_wav
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, creationflags=CREATE_NO_WINDOW)
+        
+        # Transcribe
+        model = get_whisper_model()
+        language = source_lang if source_lang != "auto" else None
+        
+        # faster-whisper uses generator for segments
+        segments, _ = model.transcribe(tmp_wav, language=language)
+        text = " ".join([seg.text for seg in segments])
+        
+        # Note: faster-whisper doesn't have built-in translation.
+        # If you need English output, you'll need a separate translation step.
+        # For now, we just return the transcribed text.
+        return text.strip()
+        
+    finally:
+        if os.path.exists(tmp_wav):
+            os.unlink(tmp_wav)
 
 def run_stage(percent: int, message: str, fn):
     emit_progress(percent, message)
@@ -396,30 +446,39 @@ def trim_scenes_at_keyframes(video_path: str, output_dir: str) -> list[dict[str,
 
 
 def main() -> int:
-    try:
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "No command"}))
+        return 1
+
+    command = sys.argv[1]
+    if command == "scenes" or (len(sys.argv) == 3 and not command.startswith("transcribe")):
+        # Original behavior: assume first two args are input_file and output_dir
+        # For backward compatibility, if no command given, treat as scenes
         input_file = sys.argv[1]
         output_dir = sys.argv[2]
-
         scenes = trim_scenes_at_keyframes(input_file, output_dir)
-
-        # stdout is reserved for the final JSON response.
-        # Rust reads this, then React parses it.
         print(json.dumps(scenes))
-        sys.stdout.flush()
-
         return 0
 
-    except Exception as error:
-        import traceback
-
-        log(f"FATAL ERROR: {error}")
-        log(traceback.format_exc())
-
-        # Always return valid JSON so Rust/React do not crash while parsing.
-        print(json.dumps([]))
-        print(f"debug_log_dir: {DEBUG_LOG_DIR}", file=sys.stderr)
-        sys.stdout.flush()
-
+    elif command == "transcribe":
+        if len(sys.argv) < 6:
+            print(json.dumps({"error": "Missing arguments for transcribe"}))
+            return 1
+        video_path = sys.argv[2]
+        start = float(sys.argv[3])
+        end = float(sys.argv[4])
+        source_lang = sys.argv[5]
+        target_lang = sys.argv[6] if len(sys.argv) > 6 else ""
+        try:
+            text = transcribe_clip(video_path, start, end, source_lang, target_lang)
+            print(json.dumps({"text": text}))
+            return 0
+        except Exception as e:
+            log(f"Transcription error: {e}")
+            print(json.dumps({"error": str(e)}))
+            return 1
+    else:
+        print(json.dumps({"error": f"Unknown command: {command}"}))
         return 1
 
 

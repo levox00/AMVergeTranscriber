@@ -9,9 +9,9 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { LazyClipProps } from "./types.ts"
 import { DownloadButton } from "./DownloadButton.tsx";
 import { FaCheck, FaPlus } from "react-icons/fa";
-import { useAppStateStore } from "../../stores/appStore.ts";
 import { useUIStateStore } from "../../stores/UIStore.ts";
 import { useGeneralSettingsStore, useThemeSettingsStore } from "../../stores/settingsStore.ts";
+import { useAppStateStore } from "../../stores/appStore";
 
 const DOWNLOAD_TONE_SAMPLE_SIZE = 24;
 const DOWNLOAD_TONE_SOURCE_SIZE = 34;
@@ -41,9 +41,15 @@ export const LazyClip = memo(function LazyClip({
   onDownloadClip,
 }: LazyClipProps) {
   const importToken = useAppStateStore(s => s.importToken);
+  
+  const transcriptionEnabled = useThemeSettingsStore(s => s.transcriptionEnabled);
+  const sourceLang = useThemeSettingsStore(s => s.transcriptionSourceLang);
+  const targetLang = useThemeSettingsStore(s => s.transcriptionTargetLang);
+  const setClipTranscription = useAppStateStore(s => s.setClipTranscription);
+  const importedVideoPath = useAppStateStore(s => s.importedVideoPath);
 
   const isSelected = useAppStateStore(s => s.selectedClips.has(clip.id));
-  const isFocused = useAppStateStore(s => s.focusedClip === clip.src);
+  const isFocused = useAppStateStore(s => s.focusedClipId === clip.id);
   const gridPreview = useUIStateStore(s => s.gridPreview);
   const videoIsHEVC = useAppStateStore(s => s.videoIsHEVC);
   const userHasHEVC = useAppStateStore(s => s.userHasHEVC);
@@ -344,11 +350,36 @@ export const LazyClip = memo(function LazyClip({
   }, [showVideo, shouldMountVideo, effectiveSrc, isHovered, audioPlaybackHover, playbackVolume]);
 
   const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (clip.thumbnailReady === false) return; // still generating — block
+    async (e: React.MouseEvent<HTMLDivElement>) => {
+      if (clip.thumbnailReady === false) return;
+      console.log(`🖱️ LazyClip handleClick - Clip ID: ${clip.id}, Clip src: ${clip.src}`);
+      console.log(`📝 Current transcription on clip: ${clip.transcription || 'none'}`);
+      // Always select the clip immediately (this sets focusedClip to clip.src)
       onClipClick(clip.id, clip.src, index, e);
+      
+      // Then transcribe in the background
+      if (transcriptionEnabled && !clip.transcription && importedVideoPath) {
+        try {
+          // Important: capture the current clip.id before async operation
+          const currentClipId = clip.id;
+          const text = await invoke<string>("transcribe_clip", {
+            clipId: currentClipId,
+            videoPath: importedVideoPath,
+            start: clip.start,
+            end: clip.end,
+            sourceLang: sourceLang,
+            targetLang: targetLang,
+          });
+          console.log(`✅ Transcription received for clip ${clip.id}: "${text}"`);
+          setClipTranscription(clip.id, text);
+        } catch (err) {
+          console.error(`❌ Transcription failed for clip ${clip.id}:`, err);
+        }
+      } else {
+        console.log(`⏭️ Skipping transcription: enabled=${transcriptionEnabled}, hasTranscription=${!!clip.transcription}, hasPath=${!!importedVideoPath}`);
+      }
     },
-    [clip.id, clip.src, clip.thumbnailReady, index, onClipClick]
+    [clip, transcriptionEnabled, sourceLang, targetLang, importedVideoPath, setClipTranscription, onClipClick]
   );
 
   const handleDoubleClick = useCallback(

@@ -26,6 +26,24 @@ export default function AppearanceSection({
   const [originalPath, setOriginalPath] = useState<string | null>(null);
   const cropRequestVersionRef = useRef(0);
 
+  const sourceLanguages = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "zh", label: "Chinese" },
+  ];
+
+  const targetLanguages = [
+    { value: "", label: "None (keep original language)" },
+    { value: "en", label: "Translate to English" },
+  ];
+
+
   const handlePickBackgroundMedia = async () => {
     const selected = await open({
       multiple: false,
@@ -51,6 +69,7 @@ export default function AppearanceSection({
         },
       ],
     });
+
 
     if (!selected || typeof selected !== "string") return;
 
@@ -325,6 +344,54 @@ export default function AppearanceSection({
           }
         />
         <SettingRow
+          label="AI Transcription"
+          description="Automatically transcribe or translate speech when you click a clip."
+          control={
+            <label className="custom-checkbox">
+              <input
+                type="checkbox"
+                checked={themeSettings.transcriptionEnabled}
+                onChange={(e) => setThemeSettings({ transcriptionEnabled: e.target.checked })}
+              />
+              <span className="checkmark"></span>
+            </label>
+          }
+        />
+
+        {themeSettings.transcriptionEnabled && (
+          <>
+            <SettingRow
+              label="Source language"
+              description="Language of the audio (auto‑detect if uncertain)."
+              control={
+                <select
+                  value={themeSettings.transcriptionSourceLang}
+                  onChange={(e) => setThemeSettings({ transcriptionSourceLang: e.target.value })}
+                >
+                  {sourceLanguages.map(lang => (
+                    <option key={lang.value} value={lang.value}>{lang.label}</option>
+                  ))}
+                </select>
+              }
+            />
+            <SettingRow
+              label="Target language"
+              description="Translate output to English (Whisper only supports English translation)."
+              control={
+                <select
+                  value={themeSettings.transcriptionTargetLang}
+                  onChange={(e) => setThemeSettings({ transcriptionTargetLang: e.target.value })}
+                >
+                  {targetLanguages.map(lang => (
+                    <option key={lang.value} value={lang.value}>{lang.label}</option>
+                  ))}
+                </select>
+              }
+            />
+          </>
+        )}
+
+        <SettingRow
           label="Factory Reset"
           description="Revert all appearance and theme settings back to their default values."
           control={
@@ -332,7 +399,7 @@ export default function AppearanceSection({
               <button
                 className="buttons"
                 onClick={onThemeReset}
-                style={{ width: "auto", padding: "0 16px", marginBottom: 0, color: "red"}}
+                style={{ width: "auto", padding: "0 16px", marginBottom: 0, color: "red" }}
               >
                 Reset to Defaults
               </button>

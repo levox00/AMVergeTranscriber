@@ -18,7 +18,7 @@ export default function ClipsContainer({ cols }: { cols?: number }) {
   const clips = useAppStateStore((state) => state.clips);
   const loading = useAppStateStore((state) => state.loading);
   const importToken = useAppStateStore((state) => state.importToken);
-  const setFocusedClip = useAppStateStore((state) => state.setFocusedClip);
+  const setFocusedClip = useAppStateStore((state) => state.setFocusedClipId);
   const setSelectedClips = useAppStateStore((state) => state.setSelectedClips);
   const setLoading = useAppStateStore((state) => state.setLoading);
 
@@ -103,8 +103,8 @@ export default function ClipsContainer({ cols }: { cols?: number }) {
 
       // Shift-click: select a range of clips
       if (isShift) {
-        const anchorIndex = state.focusedClip
-          ? clips.findIndex((c) => c.src === state.focusedClip)
+        const anchorIndex = state.focusedClipId
+          ? clips.findIndex((c) => c.id === state.focusedClipId)
           : -1;
         const startIndex = anchorIndex !== -1 ? anchorIndex : index;
         const [start, end] = [startIndex, index].sort((a, b) => a - b);
@@ -129,7 +129,10 @@ export default function ClipsContainer({ cols }: { cols?: number }) {
       }
 
       // Single click: focus this clip for preview without toggling selection
-      setFocusedClip(clipSrc);
+      setFocusedClip(clipId);
+      console.log(`🎙️ Clicked clip ID: ${clipId}, clip.src: ${clipSrc}`);
+      const clipObj = clips.find(c => c.id === clipId);
+      console.log(`📝📝📝📝📝📝📝📝📝 Does it have transcription? ${clipObj?.transcription || 'no'}`);
     },
     [clips, setFocusedClip, setSelectedClips]
   );
